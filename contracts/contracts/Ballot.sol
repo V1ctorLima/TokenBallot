@@ -2,49 +2,34 @@
 
 pragma solidity >=0.7.0 <0.9.0;
 
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
+contract BallotToken is ERC20, AccessControl {
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-interface BallotTokenFactory {
-    function createERC20(string memory name, string memory symbol)
-        external
-        returns (address);
-}
+    constructor(string memory name, string memory symbol) ERC20(name, symbol) {
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(MINTER_ROLE, _msgSender());
+    }
 
-interface IERC20 {
-    function balanceOf(address acc)
-        external
-        view
-        returns (uint256);
-        
-    function totalSupply() 
-        external 
-        view
-        returns (uint256);
-
-    function transfer(
-        address recipient, 
-        uint256 amount) 
-        external returns (bool);
-        
-    function burn(
-        address account,
-        uint256 amount)
-        external;
-        
-    function transferFrom(
-        address sender, 
-        address recipient, 
-        uint256 amount) 
-        external view returns (bool);
-
+    function mint(address to, uint256 amount) public {
+        require(hasRole(MINTER_ROLE, _msgSender()));
+        _mint(to, amount);
+    }
+    
+    function burn(address to, uint256 amount) public {
+        _burn(to, amount);
+    }
 }
 
 contract Ballot is AccessControl {
     bytes32 public constant CHAIRPERSON_ROLE = keccak256("CHAIRPERSON_ROLE");
+    address BallotTokenAddress;
 
-    uint256 start_voting = 1621616896;
-    uint256 end_voting = 1621636896;
+//    uint256 start_voting = 1621616896;
+//    uint256 end_voting = 1621636896;
+    
     address public TokenBallot;
     address public owner;
     address _erc20FactoryAddress;
@@ -67,13 +52,13 @@ contract Ballot is AccessControl {
     Proposal[] public proposals;
 
     constructor(
-        address factory,
         bytes32[] memory proposalNames) {
 
         owner = msg.sender;
-        _erc20FactoryAddress = factory;
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _setupRole(CHAIRPERSON_ROLE, msg.sender);
+        BallotToken BallotTokenContract = new BallotToken("TokenBallot","TKN");
+        BallotTokenAddress = address(BallotTokenContract);
         
         for (uint i = 0; i < proposalNames.length; i++) {
             proposals.push(Proposal({
@@ -84,25 +69,11 @@ contract Ballot is AccessControl {
     }
     
     function totalSupply() public view returns(uint256){
-        return IERC20(TokenBallot).totalSupply();
+        return BallotToken(BallotTokenAddress).totalSupply();
     }
 
-    function deployTokenBallot() public {
-        require(TokenBallot == address(0), "TokenBallot: ERC20 already deployed");
-        TokenBallot = BallotTokenFactory(_erc20FactoryAddress).createERC20(_erc20Name, _erc20Symbol);
-        IERC20(TokenBallot).transfer(owner, 1); //giveRightToVote for Default Admin
-    }
-
-    function transferERC20(address recipient, uint256 amount) public returns(bool) {
-       return IERC20(TokenBallot).transfer(recipient, amount);
-    }
-    
-    function burnERC20(address account, uint256 amount) private {
-       return IERC20(TokenBallot).burn(account, amount);
-    }
-    
     function balanceOfTokenBallot(address account) public view returns(uint256) {
-        return IERC20(TokenBallot).balanceOf(account);
+        return BallotToken(BallotTokenAddress).balanceOf(account);
     }
 
     function grantChairPersonRole(address account) public onlyRole(CHAIRPERSON_ROLE) { 
@@ -113,7 +84,7 @@ contract Ballot is AccessControl {
         require(hasRole(CHAIRPERSON_ROLE, msg.sender), "Only chairperson can give right to vote.");
         require(!voters[voter].voted, "The voter already voted.");
         require(balanceOfTokenBallot(voter) == 0);
-        transferERC20(voter, 1);
+        BallotToken(BallotTokenAddress).mint(voter, 1);
     }
 
     function delegate(address to) public {
@@ -130,15 +101,16 @@ contract Ballot is AccessControl {
         sender.delegate = to;
         Voter storage delegate_ = voters[to];
         if (delegate_.voted) {
-            proposals[delegate_.vote].voteCount += balanceOfTokenBallot(msg.sender);
+            proposals[delegate_.vote].voteCount += BallotToken(BallotTokenAddress).balanceOf(msg.sender);
         } else {
-            transferERC20(to, balanceOfTokenBallot(msg.sender));
-            burnERC20(msg.sender, balanceOfTokenBallot(msg.sender));
+            BallotToken(BallotTokenAddress).mint(to, BallotToken(BallotTokenAddress).balanceOf(msg.sender));
+            BallotToken(BallotTokenAddress).burn(msg.sender, balanceOfTokenBallot(msg.sender));
         }
     }
 
+
     function vote(uint proposal) public {
-        require(block.timestamp >= start_voting, "The vote didn't start yet to vote");
+        //require(block.timestamp >= start_voting, "The vote didn't start yet to vote");
         Voter storage sender = voters[msg.sender];
         require(balanceOfTokenBallot(msg.sender) != 0, "Has no right to vote");
         require(!sender.voted, "Already voted.");
@@ -146,13 +118,14 @@ contract Ballot is AccessControl {
         sender.vote = proposal;
 
         proposals[proposal].voteCount += balanceOfTokenBallot(msg.sender);
+        BallotToken(BallotTokenAddress).burn(msg.sender, BallotToken(BallotTokenAddress).balanceOf(msg.sender));
     }
 
 
     function winningProposal() public view
             returns (uint winningProposal_)
     {
-        require(block.timestamp <= end_voting, "The vote didn't finish yet to return a winner");
+//        require(block.timestamp <= end_voting, "The vote didn't finish yet to return a winner");
         uint winningVoteCount = 0;
         for (uint p = 0; p < proposals.length; p++) {
             if (proposals[p].voteCount > winningVoteCount) {
@@ -165,7 +138,7 @@ contract Ballot is AccessControl {
     function winnerName() public view
             returns (bytes32 winnerName_)
     {
-        require(block.timestamp <= end_voting, "The vote didn't finish yet to return a winner");
+//        require(block.timestamp <= end_voting, "The vote didn't finish yet to return a winner");
         winnerName_ = proposals[winningProposal()].name;
     }
 }

@@ -13,13 +13,11 @@ describe("Ballot", function () {
     accounts = await ethers.getSigners();
     ownerAddress = await accounts[0].getAddress();
     const BallotContract: ContractFactory = await ethers.getContractFactory("Ballot");
-    const ERC20ContractFactory = await ethers.getContractFactory("contracts/BallotTokenFactory.sol:BallotTokenFactory");
-    const deployedFactory = await ERC20ContractFactory.deploy();
     let proposalsbytes32: any[] = []
     PROPOSALS.forEach(function(text) {
       proposalsbytes32.push(ethers.utils.formatBytes32String(text))});
-    contract = await BallotContract.deploy(deployedFactory.address, proposalsbytes32);
-    await contract.deployTokenBallot();
+    contract = await BallotContract.deploy(proposalsbytes32);
+    await contract.deployed();
 });
 
   it("Should deploy and set list of Proposals correctly", async function () {
@@ -64,7 +62,7 @@ describe("Ballot", function () {
   it("Should not allow vote if the person already voted", async function () {
     await contract.giveRightToVote(accounts[1].getAddress());
     await contract.connect(accounts[1]).vote(0);
-    await expect(contract.connect(accounts[1]).vote(0)).to.be.revertedWith("Already voted.");
+    await expect(contract.connect(accounts[1]).vote(0)).to.be.revertedWith("Has no right to vote");
   });
 
   it("Winning proposal should be the most voted", async function () {
